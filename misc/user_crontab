@@ -1,0 +1,17 @@
+# Edit this file to introduce tasks to be run by user-specific cron.
+#
+# Load (overwriting everything prior!!!) as:
+#  crontab - < misc/user_crontab
+#
+# Test for pending changes:
+#  diff -w -U0 misc/user_crontab <( crontab -l ) | less -S
+#
+GOLOG_LOG_FMT=json
+
+# If another process is running, the lock is silently observed without logging anything
+*/5 * * * * $HOME/spade/misc/log_and_run.bash cron_track-deals.log.ndjson                $HOME/spade/bin/spade-cron track-deals
+* * * * *   $HOME/spade/misc/log_and_run.bash cron_poll-providers.log.ndjson             $HOME/spade/bin/spade-cron poll-providers
+* * * * *   $HOME/spade/misc/log_and_run.bash cron_sign-pending.log.ndjson               $HOME/spade/bin/spade-cron sign-pending
+* * * * *   sleep 5 && $HOME/spade/misc/log_and_run.bash cron_propose-pending.log.ndjson $HOME/spade/bin/spade-cron propose-pending
+
+#*/5 * * * * $HOME/spade/misc/log_and_run.bash cron_export-stats.log                      $HOME/spade/misc/export_stats.bash
