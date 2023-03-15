@@ -39,9 +39,10 @@ type (
 	filapitype    int
 	FilAPIs       map[filapitype]*lotusapi.FullNodeStruct //nolint:revive
 	GlobalContext struct {                                //nolint:revive
-		Db       DbConns
-		LotusAPI FilAPIs
-		Logger   ufcli.Logger
+		Db             DbConns
+		LotusAPI       FilAPIs
+		Logger         ufcli.Logger
+		PeerPrivateKey string
 	}
 	ctxKey string
 )
@@ -98,14 +99,18 @@ var CommonFlags = []ufcli.Flag{ //nolint:revive
 		Name:        "pg-metrics-connstring",
 		DefaultText: "defaults to pg-connstring",
 	}),
+	ufcli.ConfStringFlag(&ufcli.StringFlag{
+		Name: "spade-peer-private-key",
+	}),
 }
 
 func GlobalInit(cctx *ufcli.Context, uf *ufcli.UFcli) (func() error, error) { //nolint:revive
 
 	gctx := GlobalContext{
-		Logger:   uf.Logger,
-		LotusAPI: make(FilAPIs, 2),
-		Db:       make(DbConns, 2),
+		Logger:         uf.Logger,
+		LotusAPI:       make(FilAPIs, 2),
+		Db:             make(DbConns, 2),
+		PeerPrivateKey: cctx.String("spade-peer-private-key"),
 	}
 
 	apiL, apiLiteCloser, err := fil.LotusAPIClientV0(cctx.Context, cctx.String("lotus-api-lite"), 30, "")

@@ -1,7 +1,16 @@
 package main
 
 import (
+	"context"
+	"encoding/base64"
+	"github.com/data-preservation-programs/filsigner-relayed/client"
+	"github.com/data-preservation-programs/filsigner-relayed/config"
+	filcrypto "github.com/filecoin-project/go-state-types/crypto"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/pkg/errors"
 	"sync/atomic"
+	"time"
 
 	filaddr "github.com/filecoin-project/go-address"
 	cborutil "github.com/filecoin-project/go-cbor-util"
@@ -24,6 +33,21 @@ var signPending = &ufcli.Command{
 	Flags: []ufcli.Flag{},
 	Action: func(cctx *ufcli.Context) error {
 		ctx, log, db, gctx := app.UnpackCtx(cctx.Context)
+
+		identityKeyBytes, err := base64.StdEncoding.DecodeString(gctx.PeerPrivateKey)
+		if err != nil {
+			return cmn.WrErr(errors.Wrap(err, "cannot decode identity private key"))
+		}
+
+		identityKey, err := crypto.UnmarshalPrivateKey(identityKeyBytes)
+		if err != nil {
+			return cmn.WrErr(errors.Wrap(err, "cannot unmarshal identity private key"))
+		}
+
+		filsigner, err := client.NewClient(identityKey, config.GetDefaultRelayInfo())
+		if err != nil {
+			return cmn.WrErr(errors.Wrap(err, "cannot create filsigner client"))
+		}
 
 		totals := signTotals{
 			signed:  new(int32),
@@ -66,14 +90,30 @@ var signPending = &ufcli.Command{
 		for _, p := range pending {
 			wallets[p.ProposalPayload.Client] = struct{}{}
 
-			raw, err := cborutil.Dump(&p.ProposalPayload)
-			if err != nil {
-				return cmn.WrErr(err)
-			}
-
-			sig, err := gctx.LotusAPI[app.FilHeavy].WalletSign(ctx, p.ProposalPayload.Client, raw)
-			if err != nil {
-				return cmn.WrErr(err)
+			// Get whether tenant has its peer ID registered as remote signing with filsigner-relayed
+			tenantPeerID := new(peer.ID)
+			var sig *filcrypto.Signature
+			if tenantPeerID != nil {
+				// Perform remote signing
+				ctx, cancel := context.WithTimeout(ctx, time.Second*10)
+				sig, err = filsigner.SignProposal(ctx, *tenantPeerID, p.ProposalPayload)
+				cancel()
+				if errors.Is(err, context.DeadlineExceeded) {
+					atomic.AddInt32(totals.timeout, 1)
+					continue
+				} else if err != nil {
+					atomic.AddInt32(totals.failed, 1)
+					continue
+				}
+			} else {
+				raw, err := cborutil.Dump(&p.ProposalPayload)
+				if err != nil {
+					return cmn.WrErr(err)
+				}
+				sig, err = gctx.LotusAPI[app.FilHeavy].WalletSign(ctx, p.ProposalPayload.Client, raw)
+				if err != nil {
+					return cmn.WrErr(err)
+				}
 			}
 
 			propNode, err := cborutil.AsIpld(&filmarket.ClientDealProposal{
